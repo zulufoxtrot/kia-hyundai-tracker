@@ -9,7 +9,7 @@ import time
 import coloredlogs
 from sqlite3 import Error
 
-from VehicleClient import VehicleClient
+from VehicleClient import VehicleClient, ChargeType
 from hyundai_kia_connect_api.VehicleManager import VehicleManager
 
 
