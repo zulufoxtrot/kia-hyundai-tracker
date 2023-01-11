@@ -45,7 +45,11 @@ def check_if_laptop_is_asleep():
     To mitigate this problem, this function checks whether the laptop is awake.
     source: https://stackoverflow.com/questions/42635378/detect-whether-host-is-in-sleep-or-awake-state-in-macos
     """
-    result = subprocess.run(['system_profiler', 'SPDisplaysDataType'], stdout=subprocess.PIPE)
+    try:
+        result = subprocess.run(['system_profiler', 'SPDisplaysDataType'], stdout=subprocess.PIPE)
+    except FileNotFoundError:
+        logger.debug("Can't check laptop status. Running on a non-mac device?")
+        return False
     if "Display Asleep" in result.stdout.decode():
         return True
     else:
