@@ -1,11 +1,11 @@
 import datetime
+import logging
 import sqlite3
 import sys
 from enum import Enum
 from sqlite3 import Error
 
 from hyundai_kia_connect_api import Vehicle
-from log_to_database import logger
 
 
 class ChargeType(Enum):
@@ -73,7 +73,7 @@ class VehicleClient:
         #
         # # if we already have that timestamp logged, we don't need to store the data again.
         # if rows[0] == round(datetime.datetime.timestamp(self.vehicle.last_updated_at)):
-        #     logger.info("Most recent vehicle report already saved to database. Skipping.")
+        #     logging.info("Most recent vehicle report already saved to database. Skipping.")
         # else:
         sql = f'''INSERT INTO log(
                     battery_percentage,
@@ -126,7 +126,7 @@ class VehicleClient:
 
             if any(day.date.strftime("%Y-%m-%d") == row[0] for row in rows):
                 # delete saved day (we'll replace it with the most up-to-date data for this day)
-                logger.debug(f'deleting previously saved day: {day.date.strftime("%Y-%m-%d")}')
+                logging.debug(f'deleting previously saved day: {day.date.strftime("%Y-%m-%d")}')
                 sql = f"""DELETE FROM stats_per_day
                 WHERE date = '{day.date.strftime("%Y-%m-%d")}'"""
                 cur.execute(sql)
@@ -236,7 +236,7 @@ class VehicleClient:
 
     def save_data(self):
 
-        logger.info(f"Battery: {self.vehicle.ev_battery_percentage}%")
+        logging.info(f"Battery: {self.vehicle.ev_battery_percentage}%")
 
         if self.vehicle.ev_battery_is_charging:
 
@@ -244,7 +244,7 @@ class VehicleClient:
 
             estimated_end_datetime = datetime.datetime.now() + datetime.timedelta(
                 minutes=self.vehicle.ev_estimated_current_charge_duration)
-            logger.info(f"Estimated end time: {estimated_end_datetime.strftime('%d/%m/%Y at %H:%M')}")
+            logging.info(f"Estimated end time: {estimated_end_datetime.strftime('%d/%m/%Y at %H:%M')}")
         else:
             # battery is not charging nor is the engine running
             # reduce polling interval to prevent draining the 12 battery

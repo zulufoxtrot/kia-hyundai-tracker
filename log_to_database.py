@@ -5,7 +5,6 @@ import os
 import sqlite3
 import subprocess
 import time
-from enum import Enum
 
 import coloredlogs
 from sqlite3 import Error
