@@ -127,3 +127,9 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+
+log.db
+
+hyundai_kia_connect_api
+/hyundai_kia_connect_api/
