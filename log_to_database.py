@@ -112,6 +112,7 @@ if __name__ == '__main__':
                 "we got rate limited, probably exceeded 200 requests. sleeping for 1 hour before next attempt")
             log_error_to_database(exception=e)
             time.sleep(3600)
+            continue
         except Exception as e:
             logger.exception("failed to refresh token and pull cached data:", exc_info=e)
             log_error_to_database(exception=e)
