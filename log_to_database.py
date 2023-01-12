@@ -131,7 +131,7 @@ if __name__ == '__main__':
 
         logger.info("performing force refresh...")
         try:
-            vm.force_refresh_vehicle_state(vehicle_client.vehicle)
+            vm.force_refresh_vehicle_state(vehicle_client.vehicle.id)
         except Exception as e:
             logger.exception(f"failed getting forced vehicle data:", exc_info=e)
             log_error_to_database(exception=e)
