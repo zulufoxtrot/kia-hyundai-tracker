@@ -105,6 +105,9 @@ if __name__ == '__main__':
         if vehicle_client.vehicle.last_updated_at.replace(tzinfo=None) > vehicle_client.get_last_update_timestamp_from_database():
             # it's not time to force refresh yet, but we still have data on the server
             # that is more recent that our last saved data, so we save it
+
+            # perform get_driving_info only now that we're sure there is no data.
+            # otherwise we waste precious API calls (rate limiting)
             response = vm.api._get_driving_info(vm.token, vehicle_client.vehicle)
             vm.api._update_vehicle_drive_info(vehicle_client.vehicle, response)
 
@@ -140,5 +143,5 @@ if __name__ == '__main__':
             continue
 
         logger.info(f"Data retrieved from car.")
-        vm.update_vehicle_with_cached_state(vehicle_client.vehicle)
+        vm.update_vehicle_with_cached_state(vehicle_client.vehicle.id)
         vehicle_client.save_data()
