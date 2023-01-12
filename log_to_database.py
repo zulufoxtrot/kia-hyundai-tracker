@@ -11,6 +11,7 @@ from sqlite3 import Error
 
 from VehicleClient import VehicleClient, ChargeType
 from hyundai_kia_connect_api.VehicleManager import VehicleManager
+from hyundai_kia_connect_api.exceptions import RateLimitingError
 
 
 def log_error_to_database(exception: Exception):
@@ -58,6 +59,16 @@ def check_if_laptop_is_asleep():
 
 if __name__ == '__main__':
 
+    # interval in seconds between checks for cached requests
+    # we are limited to 200 requests a day, including cached
+    # that's about one every 8 minutes
+    # we set it to 30 minutes for cached refreshes.
+    CACHED_REFRESH_INTERVAL = 1800
+
+    ENGINE_RUNNING_FORCE_REFRESH_INTERVAL = 300
+    DC_CHARGE_FORCE_REFRESH_INTERVAL = 300
+    AC_CHARGE_FORCE_REFRESH_INTERVAL = 1800
+
     logger = logging.getLogger(__name__)
     coloredlogs.install(level='DEBUG', isatty=True)
 
@@ -73,6 +84,8 @@ if __name__ == '__main__':
 
     if args.interval:
         vehicle_client.interval_in_seconds = args.interval
+    else:
+        vehicle_client.interval_in_seconds = CACHED_REFRESH_INTERVAL
 
     while True:
 
@@ -94,7 +107,11 @@ if __name__ == '__main__':
             # many API calls. yes, cached calls also increment the API limit counter.
             response = vm.api._get_cached_vehicle_state(vm.token, vehicle_client.vehicle)
             vm.api._update_vehicle_properties(vehicle_client.vehicle, response)
-            #vm.update_vehicle_with_cached_state(vehicle_client.vehicle)
+        except RateLimitingError as e:
+            logger.exception(
+                "we got rate limited, probably exceeded 200 requests. sleeping for 1 hour before next attempt")
+            log_error_to_database(exception=e)
+            time.sleep(3600)
         except Exception as e:
             logger.exception("failed to refresh token and pull cached data:", exc_info=e)
             log_error_to_database(exception=e)
@@ -102,7 +119,8 @@ if __name__ == '__main__':
             time.sleep(60)
             continue
 
-        if vehicle_client.vehicle.last_updated_at.replace(tzinfo=None) > vehicle_client.get_last_update_timestamp_from_database():
+        if vehicle_client.vehicle.last_updated_at.replace(
+                tzinfo=None) > vehicle_client.get_last_update_timestamp_from_database():
             # it's not time to force refresh yet, but we still have data on the server
             # that is more recent that our last saved data, so we save it
 
@@ -116,20 +134,20 @@ if __name__ == '__main__':
         if vehicle_client.vehicle.engine_is_running:
             # for an EV: "engine running" supposedly means the contact is set and the car is "ready to drive"
             # engine is also reported as "running" in utility mode.
-            vehicle_client.interval_in_seconds = 300  # 5 minutes
+            vehicle_client.interval_in_seconds = ENGINE_RUNNING_FORCE_REFRESH_INTERVAL
             charging_power_in_kilowatts = 0
         elif vehicle_client.vehicle.ev_battery_is_charging:
             # battery is charging, we can poll more often without draining the 12v battery
             if vehicle_client.charge_type == ChargeType.DC:
-                vehicle_client.interval_in_seconds = 300  # 5 minutes
+                vehicle_client.interval_in_seconds = DC_CHARGE_FORCE_REFRESH_INTERVAL
             elif vehicle_client.charge_type in (ChargeType.AC, ChargeType.UNKNOWN):
-                vehicle_client.interval_in_seconds = 1800  # 30 minutes
+                vehicle_client.interval_in_seconds = AC_CHARGE_FORCE_REFRESH_INTERVAL
 
         delta = datetime.datetime.now() - vehicle_client.get_last_update_timestamp_from_database()
         if delta.total_seconds() <= vehicle_client.interval_in_seconds:
             logger.info(f"{str(int((vehicle_client.interval_in_seconds - delta.total_seconds()) / 60))} minutes left "
                         f"before next force refresh")
-            time.sleep(60)
+            time.sleep(min(CACHED_REFRESH_INTERVAL, vehicle_client.interval_in_seconds - delta.total_seconds()))
             continue
 
         logger.info("performing force refresh...")
