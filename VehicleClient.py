@@ -1,11 +1,16 @@
 import datetime
 import logging
+import os
 import sqlite3
+import subprocess
 import sys
+import time
 from enum import Enum
 from sqlite3 import Error
 
-from hyundai_kia_connect_api import Vehicle
+from hyundai_kia_connect_api.exceptions import RateLimitingError
+
+from hyundai_kia_connect_api import Vehicle, VehicleManager
 
 
 class ChargeType(Enum):
@@ -27,6 +32,22 @@ class VehicleClient:
         self.charging_power_in_kilowatts: int = 0  # default = 0 (not charging)
         self.charge_type: ChargeType = ChargeType.UNKNOWN
         self.vehicle: [Vehicle, None] = None
+        self.vm = None
+        self.logger = None
+
+        # interval in seconds between checks for cached requests
+        # we are limited to 200 requests a day, including cached
+        # that's about one every 8 minutes
+        # we set it to 30 minutes for cached refreshes.
+        self.CACHED_REFRESH_INTERVAL = 1800
+
+        self.ENGINE_RUNNING_FORCE_REFRESH_INTERVAL = 300
+        self.DC_CHARGE_FORCE_REFRESH_INTERVAL = 300
+        self.AC_CHARGE_FORCE_REFRESH_INTERVAL = 1800
+
+        self.vm = VehicleManager(region=1, brand=1, username=os.environ["KIA_USERNAME"],
+                                 password=os.environ["KIA_PASSWORD"],
+                                 pin="")
 
     def get_last_update_timestamp_from_database(self) -> datetime.datetime:
         try:
@@ -254,3 +275,123 @@ class VehicleClient:
         # todo only log if we got more recent telemetry from the car.
         # OR insert a record saying the latest telemetry was not updated.
         self.insert_data_to_database()
+
+    def check_if_laptop_is_asleep(self):
+        """
+        It looks like the program resumes execution periodically while my macbook sleeps.
+        This causes urllib to hang.
+        To mitigate this problem, this function checks whether the laptop is awake.
+        source: https://stackoverflow.com/questions/42635378/detect-whether-host-is-in-sleep-or-awake-state-in-macos
+        """
+        try:
+            result = subprocess.run(['system_profiler', 'SPDisplaysDataType'], stdout=subprocess.PIPE)
+        except FileNotFoundError:
+            self.logger.debug("Can't check laptop status. Running on a non-mac device?")
+            return False
+        if "Display Asleep" in result.stdout.decode():
+            return True
+        else:
+            return False
+
+    def log_error_to_database(self, exception: Exception):
+        try:
+            conn = sqlite3.connect("log.db",
+                                   detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES)
+        except Error as e:
+            print(e)
+
+        cur = conn.cursor()
+        cur.execute(''' INSERT INTO errors(
+                   timestamp,
+                   unix_timestamp,
+                   exc_type,
+                   exc_args
+         )
+                     VALUES(?, ?, ?, ?)
+                     ''',
+                    (
+                        datetime.datetime.now(),
+                        round(datetime.datetime.timestamp(datetime.datetime.now())),
+                        type(exception).__name__,
+                        str(exception.args)
+                    ))
+        conn.commit()
+
+    def loop(self):
+        while True:
+
+            if self.check_if_laptop_is_asleep():
+                self.logger.info("Laptop asleep, will check back in 60 seconds")
+                time.sleep(60)
+                continue
+
+            self.logger.info("refreshing token...")
+            if len(self.vm.vehicles) == 0 and self.vm.token:
+                # supposed bug in lib: if initialization fails due to rate limiting, vehicles list is never filled
+                # reset token to login again, the lib will then fill the list correctly
+                self.vm.token = None
+            try:
+                # this command does NOT refresh vehicles (at least for EU and if there is not a preexisting token)
+                self.vm.check_and_refresh_token()
+                self.vehicle = self.vm.get_vehicle(os.environ["KIA_VEHICLE_UUID"])
+                # fetch cached status, but do not retrieve driving info (driving stats) just yet, to prevent making too
+                # many API calls. yes, cached calls also increment the API limit counter.
+                response = self.vm.api._get_cached_vehicle_state(self.vm.token, self.vehicle)
+                self.vm.api._update_vehicle_properties(self.vehicle, response)
+            except RateLimitingError as e:
+                self.logger.exception(
+                    "we got rate limited, probably exceeded 200 requests. sleeping for 1 hour before next attempt")
+                self.log_error_to_database(exception=e)
+                time.sleep(3600)
+                continue
+            except Exception as e:
+                self.logger.exception("failed to refresh token and pull cached data:", exc_info=e)
+                self.log_error_to_database(exception=e)
+                self.logger.info("sleeping for 60 seconds before next attempt")
+                time.sleep(60)
+                continue
+
+            if self.vehicle.last_updated_at.replace(
+                    tzinfo=None) > self.get_last_update_timestamp_from_database():
+                # it's not time to force refresh yet, but we still have data on the server
+                # that is more recent that our last saved data, so we save it
+
+                # perform get_driving_info only now that we're sure there is no data.
+                # otherwise we waste precious API calls (rate limiting)
+                response = self.vm.api._get_driving_info(self.vm.token, self.vehicle)
+                self.vm.api._update_vehicle_drive_info(self.vehicle, response)
+
+                self.save_data()
+
+            if self.vehicle.engine_is_running:
+                # for an EV: "engine running" supposedly means the contact is set and the car is "ready to drive"
+                # engine is also reported as "running" in utility mode.
+                self.interval_in_seconds = self.ENGINE_RUNNING_FORCE_REFRESH_INTERVAL
+                charging_power_in_kilowatts = 0
+            elif self.vehicle.ev_battery_is_charging:
+                # battery is charging, we can poll more often without draining the 12v battery
+                if self.charge_type == ChargeType.DC:
+                    self.interval_in_seconds = self.DC_CHARGE_FORCE_REFRESH_INTERVAL
+                elif self.charge_type in (ChargeType.AC, ChargeType.UNKNOWN):
+                    self.interval_in_seconds = self.AC_CHARGE_FORCE_REFRESH_INTERVAL
+
+            delta = datetime.datetime.now() - self.get_last_update_timestamp_from_database()
+            if delta.total_seconds() <= self.interval_in_seconds:
+                self.logger.info(f"{str(int((self.interval_in_seconds - delta.total_seconds()) / 60))} minutes left "
+                                 f"before next force refresh")
+                time.sleep(min(self.CACHED_REFRESH_INTERVAL, self.interval_in_seconds - delta.total_seconds()))
+                continue
+
+            self.logger.info("performing force refresh...")
+            try:
+                self.vm.force_refresh_vehicle_state(self.vehicle.id)
+            except Exception as e:
+                self.logger.exception(f"failed getting forced vehicle data:", exc_info=e)
+                self.log_error_to_database(exception=e)
+                self.logger.info("sleeping for 60 seconds before next attempt")
+                time.sleep(60)
+                continue
+
+            self.logger.info(f"Data retrieved from car.")
+            self.vm.update_vehicle_with_cached_state(self.vehicle.id)
+            self.save_data()
