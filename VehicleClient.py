@@ -8,7 +8,9 @@ import time
 from enum import Enum
 from sqlite3 import Error
 
-from hyundai_kia_connect_api.exceptions import RateLimitingError
+from dateutil.relativedelta import relativedelta
+from hyundai_kia_connect_api.Vehicle import TripInfo
+from hyundai_kia_connect_api.exceptions import RateLimitingError, APIError
 
 from hyundai_kia_connect_api import Vehicle, VehicleManager
 
@@ -34,6 +36,7 @@ class VehicleClient:
         self.vehicle: [Vehicle, None] = None
         self.vm = None
         self.logger = None
+        self.trips = None  # vehicle trips. better motel than the one in the library
 
         # interval in seconds between checks for cached requests
         # we are limited to 200 requests a day, including cached
@@ -255,6 +258,126 @@ class VehicleClient:
         print(f"Estimated charging speed: {round(charging_power_in_kilowatts, 1)} kW")
         self.charging_power_in_kilowatts = round(charging_power_in_kilowatts, 1)
 
+    def process_trips(self):
+        """
+        Get, process and save trip info
+        A trip contains the following data:
+        - timestamp
+        - engine time
+        - idle time
+        - distance
+        - max speed
+        - average speed
+        """
+
+        # using 2020-01-01 as default date
+        # we don't want to go too far back to prevent rate limiting
+        oldest_date = self.get_most_recent_saved_trip() or datetime.datetime(2020, 1, 1)
+        current_date = datetime.datetime.now()
+
+        months_list = []
+
+        # create a list of months to iterate through, in the API's format:
+        # 202001 (jan 2020)
+        # 202002 (feb 2020)
+        # 202003 (mar 2020)
+        # etc...
+
+        while oldest_date < current_date:
+            # expected format: YYYYMM
+            months_list.append(oldest_date.strftime("%Y%m"))
+            oldest_date += relativedelta(months=1)
+
+        for yyyymm in months_list:
+            try:
+                self.vm.update_month_trip_info(self.vehicle.id, yyyymm)
+            except Exception as e:
+                self.handle_api_exception(e)
+                return
+
+            if self.vehicle.month_trip_info is not None:
+                for day in self.vehicle.month_trip_info.day_list:  # ordered on day
+                    # warning: this causes an API call.
+                    # TODO: compare with last saved day (or trip) to prevent duplicates.
+                    # WARN: a day can contain multiple trips. keep it in mind before comparing
+                    try:
+                        self.vm.update_day_trip_info(self.vehicle.id, day.yyyymmdd)
+                    except Exception as e:
+                        self.handle_api_exception(e)
+                        return
+
+                    # we need to save to database in this loop, because we depend on the currently selected day
+                    if self.vehicle.day_trip_info is not None:
+                        day = datetime.datetime.strptime(self.vehicle.day_trip_info.yyyymmdd, "%Y%m%d")
+                        for trip in reversed(self.vehicle.day_trip_info.trip_list):  # show oldest first
+                            self.save_trip_to_database(day, trip)
+
+    def get_most_recent_saved_trip(self):
+        try:
+            conn = sqlite3.connect("log.db",
+                                   detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES)
+        except Error as e:
+            print(e)
+            sys.exit()
+
+        cur = conn.cursor()
+
+        # # fetch the last known vehicule force refresh timestamp.
+        sql = 'SELECT MAX(unix_timestamp) FROM trips;'
+        cur.execute(sql)
+        rows = cur.fetchone()
+
+        try:
+            return datetime.datetime.fromtimestamp(int(rows[0]))
+        except Exception as e:
+            self.logger.exception(e)
+            return None
+
+    def save_trip_to_database(self, date: datetime.datetime, trip: TripInfo):
+        """
+        Saves a trip into the database.
+        :param date: date of the trip
+        :param trip: the trip
+        :return:
+        """
+        try:
+            conn = sqlite3.connect("log.db",
+                                   detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES)
+        except Error as e:
+            print(e)
+            sys.exit()
+
+        cur = conn.cursor()
+
+        hours = int(trip.hhmmss[:2])
+        minutes = int(trip.hhmmss[2:4])
+        seconds = int(trip.hhmmss[4:])
+
+        timestamp = date + datetime.timedelta(hours=hours, minutes=minutes, seconds=seconds)
+
+        sql = f'''
+        INSERT INTO trips(
+            	unix_timestamp,
+            	date,
+                driving_time_minutes,
+                idle_time_minutes,
+                distance_km,
+                avg_speed_kmh,
+                max_speed_kmh
+        )
+                    VALUES(
+                        {round(datetime.datetime.timestamp(timestamp))},
+                        "{timestamp.strftime("%Y-%m-%d %H:%M")}",
+                        {trip.drive_time},
+                        {trip.idle_time},
+                        {trip.distance},
+                        {trip.avg_speed},
+                        {trip.max_speed}
+                    )'''
+        print(sql)
+        cur.execute(sql)
+        conn.commit()
+
     def save_data(self):
 
         logging.info(f"Battery: {self.vehicle.ev_battery_percentage}%")
@@ -272,8 +395,8 @@ class VehicleClient:
             self.interval_in_seconds = 3600
             self.charging_power_in_kilowatts = 0
 
-        # todo only log if we got more recent telemetry from the car.
-        # OR insert a record saying the latest telemetry was not updated.
+        self.process_trips()
+
         self.insert_data_to_database()
 
     def check_if_laptop_is_asleep(self):
@@ -317,6 +440,27 @@ class VehicleClient:
                     ))
         conn.commit()
 
+    def handle_api_exception(self, exc: Exception):
+
+        if type(exc) == RateLimitingError:
+            self.logger.exception(
+                "we got rate limited, probably exceeded 200 requests. sleeping for 1 hour before next attempt",
+                exc_info=exc)
+            self.log_error_to_database(exception=exc)
+            time.sleep(3600)
+
+        elif type(exc) == APIError:
+            self.logger.exception("server responded with error:", exc_info=exc)
+            self.log_error_to_database(exception=exc)
+            self.logger.info("sleeping for 60 seconds before next attempt")
+            time.sleep(60)
+
+        elif type(exc) == Exception:
+            self.logger.exception("generinc error:", exc_info=exc)
+            self.log_error_to_database(exception=exc)
+            self.logger.info("sleeping for 60 seconds before next attempt")
+            time.sleep(60)
+
     def loop(self):
         while True:
 
@@ -326,30 +470,29 @@ class VehicleClient:
                 continue
 
             self.logger.info("refreshing token...")
+
             if len(self.vm.vehicles) == 0 and self.vm.token:
                 # supposed bug in lib: if initialization fails due to rate limiting, vehicles list is never filled
                 # reset token to login again, the lib will then fill the list correctly
                 self.vm.token = None
+            # this command does NOT refresh vehicles (at least for EU and if there is not a preexisting token)
             try:
-                # this command does NOT refresh vehicles (at least for EU and if there is not a preexisting token)
                 self.vm.check_and_refresh_token()
-                self.vehicle = self.vm.get_vehicle(os.environ["KIA_VEHICLE_UUID"])
-                # fetch cached status, but do not retrieve driving info (driving stats) just yet, to prevent making too
-                # many API calls. yes, cached calls also increment the API limit counter.
-                response = self.vm.api._get_cached_vehicle_state(self.vm.token, self.vehicle)
-                self.vm.api._update_vehicle_properties(self.vehicle, response)
-            except RateLimitingError as e:
-                self.logger.exception(
-                    "we got rate limited, probably exceeded 200 requests. sleeping for 1 hour before next attempt")
-                self.log_error_to_database(exception=e)
-                time.sleep(3600)
-                continue
             except Exception as e:
-                self.logger.exception("failed to refresh token and pull cached data:", exc_info=e)
-                self.log_error_to_database(exception=e)
-                self.logger.info("sleeping for 60 seconds before next attempt")
-                time.sleep(60)
+                self.handle_api_exception(e)
                 continue
+
+            self.vehicle = self.vm.get_vehicle(os.environ["KIA_VEHICLE_UUID"])
+            # fetch cached status, but do not retrieve driving info (driving stats) just yet, to prevent making too
+            # many API calls. yes, cached calls also increment the API limit counter.
+
+            try:
+                response = self.vm.api._get_cached_vehicle_state(self.vm.token, self.vehicle)
+            except Exception as e:
+                self.handle_api_exception(e)
+                continue
+
+            self.vm.api._update_vehicle_properties(self.vehicle, response)
 
             if self.vehicle.last_updated_at.replace(
                     tzinfo=None) > self.get_last_update_timestamp_from_database():
@@ -382,16 +525,19 @@ class VehicleClient:
                 time.sleep(min(self.CACHED_REFRESH_INTERVAL, self.interval_in_seconds - delta.total_seconds()))
                 continue
 
-            self.logger.info("performing force refresh...")
+            self.logger.info("Performing force refresh...")
             try:
                 self.vm.force_refresh_vehicle_state(self.vehicle.id)
             except Exception as e:
-                self.logger.exception(f"failed getting forced vehicle data:", exc_info=e)
-                self.log_error_to_database(exception=e)
-                self.logger.info("sleeping for 60 seconds before next attempt")
-                time.sleep(60)
+                self.handle_api_exception(e)
                 continue
 
-            self.logger.info(f"Data retrieved from car.")
-            self.vm.update_vehicle_with_cached_state(self.vehicle.id)
+            self.logger.info(f"Data received by server. Now retrieving from server...")
+
+            try:
+                self.vm.update_vehicle_with_cached_state(self.vehicle.id)
+            except Exception as e:
+                self.handle_api_exception(e)
+                continue
+
             self.save_data()

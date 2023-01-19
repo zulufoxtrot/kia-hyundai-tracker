@@ -1,3 +1,4 @@
 hyundai_kia_connect_api
 coloredlogs
 flask
+python-dateutil
