@@ -56,7 +56,7 @@ def toggle_charge():
 
 
 @app.route("/doors")
-def toggle_charge():
+def toggle_doors():
     vehicle_client.vm.check_and_refresh_token()
 
     action = request.args.get('action')
