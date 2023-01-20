@@ -19,6 +19,12 @@ def get_cached_status():
     return str(vehicle_client.vehicle)
 
 
+@app.route("/battery")
+def get_battery_soc():
+    vehicle_client.vm.check_and_refresh_token()
+    return str(vehicle_client.vehicle.ev_battery_percentage)
+
+
 @app.route("/climate")
 def toggle_climate():
     vehicle_client.vm.check_and_refresh_token()
