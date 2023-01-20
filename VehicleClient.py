@@ -272,7 +272,7 @@ class VehicleClient:
 
         # using 2020-01-01 as default date
         # we don't want to go too far back to prevent rate limiting
-        oldest_date = self.get_most_recent_saved_trip() or datetime.datetime(2020, 1, 1)
+        oldest_saved_date = self.get_most_recent_saved_trip() or datetime.datetime(2020, 1, 1)
         current_date = datetime.datetime.now()
 
         months_list = []
@@ -283,10 +283,10 @@ class VehicleClient:
         # 202003 (mar 2020)
         # etc...
 
-        while oldest_date < current_date:
+        while oldest_saved_date < current_date:
             # expected format: YYYYMM
-            months_list.append(oldest_date.strftime("%Y%m"))
-            oldest_date += relativedelta(months=1)
+            months_list.append(oldest_saved_date.strftime("%Y%m"))
+            oldest_saved_date += relativedelta(months=1)
 
         for yyyymm in months_list:
             try:
@@ -298,8 +298,10 @@ class VehicleClient:
             if self.vehicle.month_trip_info is not None:
                 for day in self.vehicle.month_trip_info.day_list:  # ordered on day
                     # warning: this causes an API call.
-                    # TODO: compare with last saved day (or trip) to prevent duplicates.
-                    # WARN: a day can contain multiple trips. keep it in mind before comparing
+                    # skip this day if already saved in db
+                    if datetime.datetime.strptime(day.yyyymmdd, "%Y%m%d") < self.get_most_recent_saved_trip():
+                        continue
+
                     try:
                         self.vm.update_day_trip_info(self.vehicle.id, day.yyyymmdd)
                     except Exception as e:
