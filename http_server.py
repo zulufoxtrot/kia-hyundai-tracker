@@ -1,6 +1,7 @@
 import os
 
 from flask import Flask, request
+from hyundai_kia_connect_api import ClimateRequestOptions
 
 from VehicleClient import VehicleClient
 
@@ -44,11 +45,22 @@ def get_battery_soc():
 
 @app.route("/climate")
 def toggle_climate():
+    """
+    Available arguments:
+    - action: [start, stop]
+    - temp: target temperature (degrees celcius)
+    - duration: duration (minutes)
+    """
+
+    options = ClimateRequestOptions()
+    options.set_temp = request.args.get('temp', 22)
+    options.duration = request.args.get('duration', 10)
+
     vehicle_client.vm.check_and_refresh_token()
 
     action = request.args.get('action')
     if action == "start":
-        vehicle_client.vm.start_climate(vehicle_client.vehicle.id)
+        vehicle_client.vm.start_climate(vehicle_client.vehicle.id, options)
         return "Climate control ON"
     elif action == "stop":
         vehicle_client.vm.stop_climate(vehicle_client.vehicle.id)
@@ -59,6 +71,10 @@ def toggle_climate():
 
 @app.route("/charge")
 def toggle_charge():
+    """
+    Available arguments:
+    - action: [start, stop]
+    """
     vehicle_client.vm.check_and_refresh_token()
 
     action = request.args.get('action')
@@ -74,6 +90,10 @@ def toggle_charge():
 
 @app.route("/doors")
 def toggle_doors():
+    """
+    Available arguments:
+    - action: [start, stop]
+    """
     vehicle_client.vm.check_and_refresh_token()
 
     action = request.args.get('action')
