@@ -9,6 +9,7 @@ app = Flask(__name__)
 
 @app.route("/force_refresh")
 def force_refresh():
+    vehicle_client.vm.check_and_refresh_token()
     vehicle_client.vm.force_refresh_vehicle_state(vehicle_client.vehicle.id)
     return "OK"
 
@@ -16,12 +17,14 @@ def force_refresh():
 @app.route("/status")
 def get_cached_status():
     vehicle_client.vm.check_and_refresh_token()
+    vehicle_client.vm.update_all_vehicles_with_cached_state()
     return str(vehicle_client.vehicle)
 
 
 @app.route("/battery")
 def get_battery_soc():
     vehicle_client.vm.check_and_refresh_token()
+    vehicle_client.vm.update_all_vehicles_with_cached_state()
     return str(vehicle_client.vehicle.ev_battery_percentage)
 
 
