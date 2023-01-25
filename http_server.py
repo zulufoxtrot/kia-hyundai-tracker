@@ -1,9 +1,9 @@
 import os
 
 from flask import Flask, request
-from hyundai_kia_connect_api import ClimateRequestOptions
 
 from VehicleClient import VehicleClient
+from hyundai_kia_connect_api import ClimateRequestOptions
 
 app = Flask(__name__)
 
@@ -53,8 +53,8 @@ def toggle_climate():
     """
 
     options = ClimateRequestOptions()
-    options.set_temp = request.args.get('temp', 22)
-    options.duration = request.args.get('duration', 10)
+    options.set_temp = request.args.get('temp', default=22)
+    options.duration = request.args.get('duration', default=10)
 
     vehicle_client.vm.check_and_refresh_token()
 

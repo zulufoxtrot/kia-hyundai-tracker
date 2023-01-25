@@ -9,10 +9,9 @@ from enum import Enum
 from sqlite3 import Error
 
 from dateutil.relativedelta import relativedelta
+from hyundai_kia_connect_api import Vehicle, VehicleManager
 from hyundai_kia_connect_api.Vehicle import TripInfo
 from hyundai_kia_connect_api.exceptions import RateLimitingError, APIError
-
-from hyundai_kia_connect_api import Vehicle, VehicleManager
 
 
 class ChargeType(Enum):
@@ -397,8 +396,6 @@ class VehicleClient:
             self.interval_in_seconds = 3600
             self.charging_power_in_kilowatts = 0
 
-        self.process_trips()
-
         self.insert_data_to_database()
 
     def check_if_laptop_is_asleep(self):
@@ -541,5 +538,10 @@ class VehicleClient:
             except Exception as e:
                 self.handle_api_exception(e)
                 continue
+
+            # request, process and save trips only after a force refresh. It's not mandatory,
+            # but we do it like this to limit API calls.
+            # process_trips() does at least 2 API calls even when there are no new trips.
+            self.process_trips()
 
             self.save_data()
