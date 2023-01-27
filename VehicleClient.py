@@ -9,9 +9,10 @@ from enum import Enum
 from sqlite3 import Error
 
 from dateutil.relativedelta import relativedelta
-from hyundai_kia_connect_api import Vehicle, VehicleManager
 from hyundai_kia_connect_api.Vehicle import TripInfo
 from hyundai_kia_connect_api.exceptions import RateLimitingError, APIError
+
+from hyundai_kia_connect_api import Vehicle, VehicleManager
 
 
 class ChargeType(Enum):
@@ -40,10 +41,10 @@ class VehicleClient:
         # interval in seconds between checks for cached requests
         # we are limited to 200 requests a day, including cached
         # that's about one every 8 minutes
-        # we set it to 30 minutes for cached refreshes.
-        self.CACHED_REFRESH_INTERVAL = 1800
+        # we set it to 1 hour for cached refreshes.
+        self.CACHED_REFRESH_INTERVAL = 3600
 
-        self.ENGINE_RUNNING_FORCE_REFRESH_INTERVAL = 300
+        self.ENGINE_RUNNING_FORCE_REFRESH_INTERVAL = 600
         self.DC_CHARGE_FORCE_REFRESH_INTERVAL = 300
         self.AC_CHARGE_FORCE_REFRESH_INTERVAL = 1800
 
