@@ -501,7 +501,12 @@ class VehicleClient:
 
                 # perform get_driving_info only now that we're sure there is no data.
                 # otherwise we waste precious API calls (rate limiting)
-                response = self.vm.api._get_driving_info(self.vm.token, self.vehicle)
+                try:
+                    response = self.vm.api._get_driving_info(self.vm.token, self.vehicle)
+                except Exception as e:
+                    self.handle_api_exception(e)
+                    continue
+
                 self.vm.api._update_vehicle_drive_info(self.vehicle, response)
 
                 self.save_data()
