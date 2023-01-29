@@ -25,7 +25,7 @@ def get_cached_status():
     vehicle_client.vm.update_all_vehicles_with_cached_state()
 
     if vehicle_client.vehicle.last_updated_at.replace(
-            tzinfo=None) > vehicle_client.get_last_update_timestamp_from_database():
+            tzinfo=None) > vehicle_client.db_client.get_last_update_timestamp():
         vehicle_client.save_data()
 
     return str(vehicle_client.vehicle)
@@ -37,7 +37,7 @@ def get_battery_soc():
     vehicle_client.vm.update_all_vehicles_with_cached_state()
 
     if vehicle_client.vehicle.last_updated_at.replace(
-            tzinfo=None) > vehicle_client.get_last_update_timestamp_from_database():
+            tzinfo=None) > vehicle_client.db_client.get_last_update_timestamp():
         vehicle_client.save_data()
 
     return str(vehicle_client.vehicle.ev_battery_percentage)
