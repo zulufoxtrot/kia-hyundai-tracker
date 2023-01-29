@@ -2,8 +2,7 @@ import datetime
 import logging
 import os
 import sqlite3
-import sys
-from sqlite3 import Error
+from sqlite3 import Connection
 
 from hyundai_kia_connect_api.Vehicle import TripInfo
 
@@ -23,13 +22,13 @@ class DatabaseClient:
 
         self.vehicle_client = vehicle_client
 
-    def get_last_update_timestamp(self) -> datetime.datetime:
-        try:
-            conn = sqlite3.connect(self.db_path,
-                                   detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES)
-        except Error as e:
-            logging.exception(e)
+    def create_connection(self) -> Connection:
+        conn = sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES)
+        return conn
 
+    def get_last_update_timestamp(self) -> datetime.datetime:
+
+        conn = self.create_connection()
         cur = conn.cursor()
 
         sql = 'SELECT MAX(unix_last_vehicle_update_timestamp) FROM log;'
@@ -42,13 +41,8 @@ class DatabaseClient:
             # default value if no preexisting log
             return datetime.datetime(2000, 1, 1)
 
-    def get_most_recent_saved_trip(self):
-        try:
-            conn = sqlite3.connect(self.db_path,
-                                   detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES)
-        except Error as e:
-            logging.exception(e)
-            sys.exit()
+    def get_most_recent_saved_trip_timestamp(self):
+        conn = self.create_connection()
 
         cur = conn.cursor()
 
@@ -70,13 +64,7 @@ class DatabaseClient:
         :param trip: the trip
         :return:
         """
-        try:
-            conn = sqlite3.connect(self.db_path,
-                                   detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES)
-        except Error as e:
-            logging.exception(e)
-            sys.exit()
-
+        conn = self.create_connection()
         cur = conn.cursor()
 
         hours = int(trip.hhmmss[:2])
@@ -108,17 +96,13 @@ class DatabaseClient:
         cur.execute(sql)
         conn.commit()
 
-    def insert_data(self):
+    def save_log(self):
         """
         Inserts a data point into the log database
         """
 
-        try:
-            conn = sqlite3.connect(self.db_path,
-                                   detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES)
-        except Error as e:
-            logging.exception(e)
-            sys.exit()
+        conn = self.create_connection()
+        cur = conn.cursor()
 
         latitude = self.vehicle_client.vehicle.location_latitude or 'NULL'
         longitude = self.vehicle_client.vehicle.location_longitude or 'NULL'
@@ -128,9 +112,7 @@ class DatabaseClient:
         else:
             odometer = 0
 
-        cur = conn.cursor()
-
-        #
+        # TODO: restore this?
         # # fetch the last known vehicule force refresh timestamp.
         # sql = 'SELECT MAX(unix_last_vehicle_update_timestamp) FROM log;'
         # cur.execute(sql)
@@ -181,6 +163,10 @@ class DatabaseClient:
         print(sql)
         cur.execute(sql)
         conn.commit()
+
+    def save_daily_stats(self):
+        conn = self.create_connection()
+        cur = conn.cursor()
 
         # for each day, check if day already saved in database to prevent duplicates
         sql = 'SELECT date FROM stats_per_day;'
@@ -234,13 +220,9 @@ class DatabaseClient:
             conn.commit()
 
     def log_error(self, exception: Exception):
-        try:
-            conn = sqlite3.connect(self.db_path,
-                                   detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES)
-        except Error as e:
-            logging.exception(e)
-
+        conn = self.create_connection()
         cur = conn.cursor()
+
         cur.execute(''' INSERT INTO errors(
                    timestamp,
                    unix_timestamp,

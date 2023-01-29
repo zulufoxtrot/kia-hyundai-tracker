@@ -137,7 +137,7 @@ class VehicleClient:
 
         # using 2020-01-01 as default date
         # we don't want to go too far back to prevent rate limiting
-        oldest_saved_date = self.db_client.get_most_recent_saved_trip() or datetime.datetime(2020, 1, 1)
+        oldest_saved_date = self.db_client.get_most_recent_saved_trip_timestamp() or datetime.datetime(2020, 1, 1)
         current_date = datetime.datetime.now()
 
         months_list = []
@@ -179,7 +179,7 @@ class VehicleClient:
                         for trip in reversed(self.vehicle.day_trip_info.trip_list):  # show oldest first
                             self.db_client.save_trip(day, trip)
 
-    def save_data(self):
+    def save_log(self):
 
         logging.info(f"Battery: {self.vehicle.ev_battery_percentage}%")
 
@@ -196,7 +196,7 @@ class VehicleClient:
             self.interval_in_seconds = 3600
             self.charging_power_in_kilowatts = 0
 
-        self.db_client.insert_data()
+        self.db_client.save_log()
 
     def handle_api_exception(self, exc: Exception):
 
@@ -269,7 +269,7 @@ class VehicleClient:
 
                 self.vm.api._update_vehicle_drive_info(self.vehicle, response)
 
-                self.save_data()
+                self.db_client.save_daily_stats()
 
             if self.vehicle.engine_is_running:
                 # for an EV: "engine running" supposedly means the contact is set and the car is "ready to drive"
@@ -313,4 +313,4 @@ class VehicleClient:
             # process_trips() does at least 2 API calls even when there are no new trips.
             self.process_trips()
 
-            self.save_data()
+            self.save_log()
