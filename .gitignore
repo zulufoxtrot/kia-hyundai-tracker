@@ -129,7 +129,7 @@ dmypy.json
 .pyre/
 
 
-log.db
+default_database.db
 
 hyundai_kia_connect_api
 /hyundai_kia_connect_api/
