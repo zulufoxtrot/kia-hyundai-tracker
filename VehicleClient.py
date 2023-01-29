@@ -56,7 +56,6 @@ class VehicleClient:
                                  password=os.environ["KIA_PASSWORD"],
                                  pin="")
 
-
     def get_estimated_charging_power(self):
         """
         Roughly estimates charging speed based on:
@@ -164,7 +163,8 @@ class VehicleClient:
                 for day in self.vehicle.month_trip_info.day_list:  # ordered on day
                     # warning: this causes an API call.
                     # skip this day if already saved in db
-                    if datetime.datetime.strptime(day.yyyymmdd, "%Y%m%d") < self.get_most_recent_saved_trip():
+                    if datetime.datetime.strptime(day.yyyymmdd,
+                                                  "%Y%m%d") < self.db_client.get_most_recent_saved_trip_timestamp():
                         continue
 
                     try:
@@ -180,8 +180,6 @@ class VehicleClient:
                             self.db_client.save_trip(day, trip)
 
     def save_log(self):
-
-        logging.info(f"Battery: {self.vehicle.ev_battery_percentage}%")
 
         if self.vehicle.ev_battery_is_charging:
 
