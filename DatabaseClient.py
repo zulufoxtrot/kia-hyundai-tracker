@@ -235,7 +235,7 @@ class DatabaseClient:
 
     def log_error(self, exception: Exception):
         try:
-            conn = sqlite3.connect("default_database.db",
+            conn = sqlite3.connect(self.db_path,
                                    detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES)
         except Error as e:
             logging.exception(e)
