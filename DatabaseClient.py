@@ -14,6 +14,13 @@ class DatabaseClient:
 
     def __init__(self, vehicle_client: VehicleClient):
         self.db_path = os.environ["KIA_DB_PATH"]
+
+        if not self.db_path:
+            raise NameError("KIA_DB_PATH env var is empty or undefined")
+
+        if not os.path.exists(self.db_path):
+            raise FileNotFoundError(f"DB file not found: {self.db_path}")
+
         self.vehicle_client = vehicle_client
 
     def get_last_update_timestamp(self) -> datetime.datetime:
