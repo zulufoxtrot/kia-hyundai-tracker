@@ -6,7 +6,7 @@ from enum import Enum
 
 from dateutil.relativedelta import relativedelta
 from dotenv import load_dotenv
-from hyundai_kia_connect_api.exceptions import RateLimitingError, APIError
+from hyundai_kia_connect_api.exceptions import RateLimitingError, APIError, RequestTimeoutError
 
 import Utils
 from DatabaseClient import DatabaseClient
@@ -34,7 +34,7 @@ class VehicleClient:
 
         self.db_client = DatabaseClient(self)
 
-        self.interval_in_seconds: int = 3600  # default
+        self.interval_in_seconds: int = 3600 * 4  # default
         self.charging_power_in_kilowatts: int = 0  # default = 0 (not charging)
         self.charge_type: ChargeType = ChargeType.UNKNOWN
         self.vehicle: [Vehicle, None] = None
@@ -45,8 +45,8 @@ class VehicleClient:
         # interval in seconds between checks for cached requests
         # we are limited to 200 requests a day, including cached
         # that's about one every 8 minutes
-        # we set it to 1 hour for cached refreshes.
-        self.CACHED_REFRESH_INTERVAL = 3600
+        # we set it to 4 hours for cached refreshes.
+        self.CACHED_REFRESH_INTERVAL = 3600 * 4
 
         self.ENGINE_RUNNING_FORCE_REFRESH_INTERVAL = 600
         self.DC_CHARGE_FORCE_REFRESH_INTERVAL = 300
@@ -197,10 +197,27 @@ class VehicleClient:
         self.db_client.save_log()
 
     def handle_api_exception(self, exc: Exception):
+        """
+        In case of API error, this function defines what to do:
+        - log error
+        - sleep
+        :param exc: the Exception returned by the library
+        """
 
+        # rate limiting: we are blocked for 24 hours
         if isinstance(exc, RateLimitingError):
             self.logger.exception(
-                "we got rate limited, probably exceeded 200 requests. sleeping for 1 hour before next attempt",
+                "we got rate limited, probably exceeded 200 requests. sleeping for 4 hours before next attempt",
+                exc_info=exc)
+            self.db_client.log_error(exception=exc)
+            time.sleep(3600 * 4)
+
+        # request timeout: vehicle could not be reached.
+        # to prevent too many unsuccessful requests in a row (which would lead to rate limiting) we sleep for a while.
+        elif isinstance(exc, RequestTimeoutError):
+            self.logger.exception(
+                "The vehicle did not respond. Sleeping for an hour to prevent too many unsuccessful requests "
+                "that would lead to rate limiting ",
                 exc_info=exc)
             self.db_client.log_error(exception=exc)
             time.sleep(3600)
@@ -212,8 +229,9 @@ class VehicleClient:
             self.logger.info("sleeping for 60 seconds before next attempt")
             time.sleep(60)
 
+        # any other exception
         else:
-            self.logger.exception("generinc error:", exc_info=exc)
+            self.logger.exception("generic error:", exc_info=exc)
             self.db_client.log_error(exception=exc)
             self.logger.info("sleeping for 60 seconds before next attempt")
             time.sleep(60)
@@ -269,18 +287,6 @@ class VehicleClient:
 
                 self.db_client.save_daily_stats()
 
-            if self.vehicle.engine_is_running:
-                # for an EV: "engine running" supposedly means the contact is set and the car is "ready to drive"
-                # engine is also reported as "running" in utility mode.
-                self.interval_in_seconds = self.ENGINE_RUNNING_FORCE_REFRESH_INTERVAL
-                self.charging_power_in_kilowatts = 0
-            elif self.vehicle.ev_battery_is_charging:
-                # battery is charging, we can poll more often without draining the 12v battery
-                if self.charge_type == ChargeType.DC:
-                    self.interval_in_seconds = self.DC_CHARGE_FORCE_REFRESH_INTERVAL
-                elif self.charge_type in (ChargeType.AC, ChargeType.UNKNOWN):
-                    self.interval_in_seconds = self.AC_CHARGE_FORCE_REFRESH_INTERVAL
-
             delta = datetime.datetime.now() - self.db_client.get_last_update_timestamp()
 
             self.logger.info(f"Delta between last saved update and current time: {int(delta.total_seconds())} seconds")
@@ -306,9 +312,22 @@ class VehicleClient:
                 self.handle_api_exception(e)
                 continue
 
+            if self.vehicle.engine_is_running:
+                # for an EV: "engine running" supposedly means the contact is set and the car is "ready to drive"
+                # engine is also reported as "running" in utility mode.
+                self.interval_in_seconds = self.ENGINE_RUNNING_FORCE_REFRESH_INTERVAL
+                self.charging_power_in_kilowatts = 0
+            elif self.vehicle.ev_battery_is_charging:
+                # battery is charging, we can poll more often without draining the 12v battery
+                if self.charge_type == ChargeType.DC:
+                    self.interval_in_seconds = self.DC_CHARGE_FORCE_REFRESH_INTERVAL
+                elif self.charge_type in (ChargeType.AC, ChargeType.UNKNOWN):
+                    self.interval_in_seconds = self.AC_CHARGE_FORCE_REFRESH_INTERVAL
+
             # request, process and save trips only after a force refresh. It's not mandatory,
             # but we do it like this to limit API calls.
             # process_trips() does at least 2 API calls even when there are no new trips.
             self.process_trips()
 
+            # process and save data to database.
             self.save_log()
