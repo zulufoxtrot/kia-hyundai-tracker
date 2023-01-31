@@ -265,6 +265,8 @@ class VehicleClient:
 
             self.vm.api._update_vehicle_properties(self.vehicle, response)
 
+            self.set_interval()
+
             # TODO: SHOULD WE REALLY STRIP TZINFO?
             if self.vehicle.last_updated_at.replace(
                     tzinfo=None) > self.db_client.get_last_update_timestamp():
@@ -308,20 +310,7 @@ class VehicleClient:
                 self.handle_api_exception(e)
                 continue
 
-            if self.vehicle.engine_is_running:
-                # for an EV: "engine running" supposedly means the contact is set and the car is "ready to drive"
-                # engine is also reported as "running" in utility mode.
-                self.interval_in_seconds = self.ENGINE_RUNNING_FORCE_REFRESH_INTERVAL
-                self.charging_power_in_kilowatts = 0
-            elif self.vehicle.ev_battery_is_charging:
-                # battery is charging, we can poll more often without draining the 12v battery
-                if self.charge_type == ChargeType.DC:
-                    self.interval_in_seconds = self.DC_CHARGE_FORCE_REFRESH_INTERVAL
-                elif self.charge_type in (ChargeType.AC, ChargeType.UNKNOWN):
-                    self.interval_in_seconds = self.AC_CHARGE_FORCE_REFRESH_INTERVAL
-            else:
-                # car is off
-                self.interval_in_seconds = self.CAR_OFF_FORCE_REFRESH_INTERVAL
+            self.set_interval()
 
             # request, process and save trips only after a force refresh. It's not mandatory,
             # but we do it like this to limit API calls.
@@ -330,3 +319,19 @@ class VehicleClient:
 
             # process and save data to database.
             self.save_log()
+
+    def set_interval(self):
+        if self.vehicle.engine_is_running:
+            # for an EV: "engine running" supposedly means the contact is set and the car is "ready to drive"
+            # engine is also reported as "running" in utility mode.
+            self.interval_in_seconds = self.ENGINE_RUNNING_FORCE_REFRESH_INTERVAL
+            self.charging_power_in_kilowatts = 0
+        elif self.vehicle.ev_battery_is_charging:
+            # battery is charging, we can poll more often without draining the 12v battery
+            if self.charge_type == ChargeType.DC:
+                self.interval_in_seconds = self.DC_CHARGE_FORCE_REFRESH_INTERVAL
+            elif self.charge_type in (ChargeType.AC, ChargeType.UNKNOWN):
+                self.interval_in_seconds = self.AC_CHARGE_FORCE_REFRESH_INTERVAL
+        else:
+            # car is off
+            self.interval_in_seconds = self.CAR_OFF_FORCE_REFRESH_INTERVAL
