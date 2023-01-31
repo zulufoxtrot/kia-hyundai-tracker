@@ -8,7 +8,6 @@ from dateutil.relativedelta import relativedelta
 from dotenv import load_dotenv
 from hyundai_kia_connect_api.exceptions import RateLimitingError, APIError, RequestTimeoutError
 
-import Utils
 from DatabaseClient import DatabaseClient
 from hyundai_kia_connect_api import Vehicle, VehicleManager
 
@@ -46,7 +45,9 @@ class VehicleClient:
         # we are limited to 200 requests a day, including cached
         # that's about one every 8 minutes
         # we set it to 4 hours for cached refreshes.
-        self.CACHED_REFRESH_INTERVAL = 3600 * 4
+        self.CACHED_REFRESH_INTERVAL = 3600
+
+        self.CAR_OFF_FORCE_REFRESH_INTERVAL = 3600 * 4
 
         self.ENGINE_RUNNING_FORCE_REFRESH_INTERVAL = 600
         self.DC_CHARGE_FORCE_REFRESH_INTERVAL = 300
@@ -239,11 +240,6 @@ class VehicleClient:
     def loop(self):
         while True:
 
-            if Utils.check_if_laptop_is_asleep():
-                self.logger.info("Laptop asleep, will check back in 60 seconds")
-                time.sleep(60)
-                continue
-
             self.logger.info("refreshing token...")
 
             if len(self.vm.vehicles) == 0 and self.vm.token:
@@ -323,6 +319,9 @@ class VehicleClient:
                     self.interval_in_seconds = self.DC_CHARGE_FORCE_REFRESH_INTERVAL
                 elif self.charge_type in (ChargeType.AC, ChargeType.UNKNOWN):
                     self.interval_in_seconds = self.AC_CHARGE_FORCE_REFRESH_INTERVAL
+            else:
+                # car is off
+                self.interval_in_seconds = self.CAR_OFF_FORCE_REFRESH_INTERVAL
 
             # request, process and save trips only after a force refresh. It's not mandatory,
             # but we do it like this to limit API calls.
