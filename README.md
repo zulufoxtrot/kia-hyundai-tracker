@@ -2,6 +2,8 @@
 
 Track your Kia/Hyundai car using the Kia Connect / Bluelink API.
 
+![Screenshot](images/screenshot1.png)
+
 # Installation
 
 ## Database
@@ -28,6 +30,18 @@ Track your Kia/Hyundai car using the Kia Connect / Bluelink API.
 2. edit `.env` with the required values (kia username, password, vehicle UUID) and change the default database path if
    needed
 
-# Run
+# Run daemon
 
 `python main.py`
+
+# Run HTTP server
+
+`python http_server.py`
+
+# Grafana screenshots
+
+![Screenshot](images/screenshot2.png)
+Power & regen stats
+
+![Screenshot](images/screenshot3.png)
+Location tracking
