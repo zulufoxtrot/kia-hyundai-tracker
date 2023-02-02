@@ -6,6 +6,7 @@ from flask import Flask, request, make_response, jsonify
 
 from VehicleClient import VehicleClient
 from hyundai_kia_connect_api import ClimateRequestOptions
+from hyundai_kia_connect_api.const import OrderStatus
 
 app = Flask(__name__)
 
@@ -96,11 +97,22 @@ def toggle_climate():
 
     action = request.args.get('action')
     if action == "start":
-        vehicle_client.vm.start_climate(vehicle_client.vehicle.id, options)
+        action_id = vehicle_client.vm.start_climate(vehicle_client.vehicle.id, options)
+        status = vehicle_client.vm.check_action_status(vehicle_client.vehicle.id, action_id, synchronous=True,
+                                                       timeout=60)
+        if status == OrderStatus.SUCCESS:
+            return "Charge ON"
+        else:
+            return str(status)
         return "Climate control ON"
     elif action == "stop":
-        vehicle_client.vm.stop_climate(vehicle_client.vehicle.id)
-        return "Climate control OFF"
+        action_id = vehicle_client.vm.start_climate(vehicle_client.vehicle.id, options)
+        status = vehicle_client.vm.check_action_status(vehicle_client.vehicle.id, action_id, synchronous=False,
+                                                       timeout=60)
+        if status == OrderStatus.SUCCESS:
+            return "Climate control OFF"
+        else:
+            return str(status)
     else:
         return f"unrecognised command: {action}. send start or stop."
 
@@ -116,8 +128,13 @@ def toggle_charge():
 
     action = request.args.get('action')
     if action == "start":
-        vehicle_client.vm.start_charge(vehicle_client.vehicle.id)
-        return "Charge ON"
+        action_id = vehicle_client.vm.start_charge(vehicle_client.vehicle.id)
+        status = vehicle_client.vm.check_action_status(vehicle_client.vehicle.id, action_id, synchronous=True,
+                                                       timeout=60)
+        if status == OrderStatus.SUCCESS:
+            return "Charge ON"
+        else:
+            return str(status)
     elif action == "stop":
         vehicle_client.vm.stop_charge(vehicle_client.vehicle.id)
         return "Charge OFF"
