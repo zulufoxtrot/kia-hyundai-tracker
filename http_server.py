@@ -99,15 +99,15 @@ def toggle_climate():
     if action == "start":
         action_id = vehicle_client.vm.start_climate(vehicle_client.vehicle.id, options)
         status = vehicle_client.vm.check_action_status(vehicle_client.vehicle.id, action_id, synchronous=True,
-                                                       timeout=60)
+                                                       timeout=25)
         if status == OrderStatus.SUCCESS:
             return "Climate control ON"
         else:
             return str(status)
     elif action == "stop":
-        action_id = vehicle_client.vm.stop_climate(vehicle_client.vehicle.id, options)
+        action_id = vehicle_client.vm.stop_climate(vehicle_client.vehicle.id)
         status = vehicle_client.vm.check_action_status(vehicle_client.vehicle.id, action_id, synchronous=True,
-                                                       timeout=60)
+                                                       timeout=25)
         if status == OrderStatus.SUCCESS:
             return "Climate control OFF"
         else:
