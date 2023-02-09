@@ -38,7 +38,7 @@ def force_refresh():
 
     vehicle_client.save_log()
 
-    return "OK"
+    return jsonify({"action": "force_refresh", "status": "success"})
 
 
 @app.route("/status")
@@ -79,6 +79,35 @@ def get_battery_soc():
     return str(vehicle_client.vehicle.ev_battery_percentage)
 
 
+@app.route("/charge")
+@auth_required
+def toggle_charge():
+    """
+    Available arguments:
+    - action: [start, stop]
+    - synchronous: [true, false]
+    """
+    vehicle_client.vm.check_and_refresh_token()
+
+    action = request.args.get('action')
+    wait_for_response = bool(request.args.get('synchronous', False))
+    status = OrderStatus.PENDING
+
+    if action == "start":
+        os.environ["kia_action_id"] = vehicle_client.vm.start_charge(vehicle_client.vehicle.id)
+    elif action == "stop":
+        os.environ["kia_action_id"] = vehicle_client.vm.stop_charge(vehicle_client.vehicle.id)
+    else:
+        return f"unrecognised command: {action}. send start or stop."
+
+    if wait_for_response:
+        status = vehicle_client.vm.check_action_status(vehicle_client.vehicle.id, os.environ["kia_action_id"],
+                                                       synchronous=True,
+                                                       timeout=60)
+
+    return jsonify({"component": "charge", "action": action, "status": status.value})
+
+
 @app.route("/climate")
 @auth_required
 def toggle_climate():
@@ -87,6 +116,8 @@ def toggle_climate():
     - action: [start, stop]
     - temp: target temperature (degrees celcius)
     - duration: duration (minutes)
+    - synchronous: [true, false]
+
     """
 
     options = ClimateRequestOptions()
@@ -96,49 +127,22 @@ def toggle_climate():
     vehicle_client.vm.check_and_refresh_token()
 
     action = request.args.get('action')
+    wait_for_response = bool(request.args.get('synchronous', False))
+    status = OrderStatus.PENDING
+
     if action == "start":
-        action_id = vehicle_client.vm.start_climate(vehicle_client.vehicle.id, options)
-        status = vehicle_client.vm.check_action_status(vehicle_client.vehicle.id, action_id, synchronous=True,
-                                                       timeout=15)
-        if status == OrderStatus.SUCCESS:
-            return "Climate control ON"
-        else:
-            return str(status)
+        os.environ["kia_action_id"] = vehicle_client.vm.start_climate(vehicle_client.vehicle.id, options)
     elif action == "stop":
-        action_id = vehicle_client.vm.stop_climate(vehicle_client.vehicle.id)
-        status = vehicle_client.vm.check_action_status(vehicle_client.vehicle.id, action_id, synchronous=True,
-                                                       timeout=15)
-        if status == OrderStatus.SUCCESS:
-            return "Climate control OFF"
-        else:
-            return str(status)
+        os.environ["kia_action_id"] = vehicle_client.vm.stop_climate(vehicle_client.vehicle.id)
     else:
         return f"unrecognised command: {action}. send start or stop."
 
-
-@app.route("/charge")
-@auth_required
-def toggle_charge():
-    """
-    Available arguments:
-    - action: [start, stop]
-    """
-    vehicle_client.vm.check_and_refresh_token()
-
-    action = request.args.get('action')
-    if action == "start":
-        action_id = vehicle_client.vm.start_charge(vehicle_client.vehicle.id)
-        status = vehicle_client.vm.check_action_status(vehicle_client.vehicle.id, action_id, synchronous=True,
+    if wait_for_response:
+        status = vehicle_client.vm.check_action_status(vehicle_client.vehicle.id, os.environ["kia_action_id"],
+                                                       synchronous=True,
                                                        timeout=60)
-        if status == OrderStatus.SUCCESS:
-            return "Charge ON"
-        else:
-            return str(status)
-    elif action == "stop":
-        vehicle_client.vm.stop_charge(vehicle_client.vehicle.id)
-        return "Charge OFF"
-    else:
-        return f"unrecognised command: {action}. send start or stop."
+
+    return jsonify({"component": "climate", "action": action, "status": status.value})
 
 
 @app.route("/doors")
@@ -146,19 +150,45 @@ def toggle_charge():
 def toggle_doors():
     """
     Available arguments:
-    - action: [start, stop]
+    - action: [lock, unlock]
+    - synchronous: [true, false]
     """
     vehicle_client.vm.check_and_refresh_token()
 
     action = request.args.get('action')
+    wait_for_response = bool(request.args.get('synchronous', False))
+    status = OrderStatus.PENDING
+
     if action == "lock":
-        vehicle_client.vm.lock(vehicle_client.vehicle.id)
-        return "Doors LOCKED"
+        os.environ["kia_action_id"] = vehicle_client.vm.lock(vehicle_client.vehicle.id)
     elif action == "unlock":
-        vehicle_client.vm.unlock(vehicle_client.vehicle.id)
-        return "Doors UNLOCKED"
+        os.environ["kia_action_id"] = vehicle_client.vm.unlock(vehicle_client.vehicle.id)
     else:
         return f"unrecognised command: {action}. send lock or unlock."
+
+    if wait_for_response:
+        status = vehicle_client.vm.check_action_status(vehicle_client.vehicle.id, os.environ["kia_action_id"],
+                                                       synchronous=True,
+                                                       timeout=60)
+
+    return jsonify({"component": "doors", "action": action, "status": status.value})
+
+
+@app.route("/last_action_status")
+def get_last_action_status():
+    """
+    Get status of the last known sent command
+    """
+    if os.environ.get("kia_action_id"):
+        try:
+            status = vehicle_client.vm.check_action_status(vehicle_client.vehicle.id, os.environ["kia_action_id"],
+                                                           synchronous=True,
+                                                           timeout=20)
+            return jsonify({"status": status.value})
+        except Exception as e:
+            return jsonify({"error": str(e)})
+    else:
+        return jsonify({"error": "no known action ID"})
 
 
 if __name__ == "__main__":
