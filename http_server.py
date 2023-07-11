@@ -121,7 +121,7 @@ def toggle_climate():
     """
 
     options = ClimateRequestOptions()
-    options.set_temp = request.args.get('temp', default=22)
+    options.set_temp = float(request.args.get('temp', default=22))
     options.duration = request.args.get('duration', default=10)
 
     vehicle_client.vm.check_and_refresh_token()
