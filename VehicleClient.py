@@ -208,34 +208,38 @@ class VehicleClient:
         # rate limiting: we are blocked for 24 hours
         if isinstance(exc, RateLimitingError):
             self.logger.exception(
-                "we got rate limited, probably exceeded 200 requests. sleeping for 4 hours before next attempt",
+                "we got rate limited, probably exceeded 200 requests. exiting",
                 exc_info=exc)
             self.db_client.log_error(exception=exc)
-            time.sleep(3600 * 4)
+            # time.sleep(3600 * 4)
+            return
 
         # request timeout: vehicle could not be reached.
         # to prevent too many unsuccessful requests in a row (which would lead to rate limiting) we sleep for a while.
         elif isinstance(exc, RequestTimeoutError):
             self.logger.exception(
-                "The vehicle did not respond. Sleeping for an hour to prevent too many unsuccessful requests "
+                "The vehicle did not respond. Exiting to prevent too many unsuccessful requests "
                 "that would lead to rate limiting ",
                 exc_info=exc)
             self.db_client.log_error(exception=exc)
-            time.sleep(3600)
+            return
+            #time.sleep(3600)
 
         # broad API error
         elif isinstance(exc, APIError):
             self.logger.exception("server responded with error:", exc_info=exc)
             self.db_client.log_error(exception=exc)
-            self.logger.info("sleeping for 60 seconds before next attempt")
-            time.sleep(60)
+            return
+            # self.logger.info("sleeping for 60 seconds before next attempt")
+            #time.sleep(60)
 
         # any other exception
         else:
             self.logger.exception("generic error:", exc_info=exc)
             self.db_client.log_error(exception=exc)
-            self.logger.info("sleeping for 60 seconds before next attempt")
-            time.sleep(60)
+            return
+            # self.logger.info("sleeping for 60 seconds before next attempt")
+            #time.sleep(60)
 
     def refresh(self):
         self.logger.info("refreshing token...")
@@ -289,8 +293,8 @@ class VehicleClient:
 
         if delta.total_seconds() <= self.interval_in_seconds:
             self.logger.info(f"{str(int((self.interval_in_seconds - delta.total_seconds()) / 60))} minutes left "
-                             f"before next force refresh")
-            time.sleep(min(self.CACHED_REFRESH_INTERVAL, self.interval_in_seconds - int(delta.total_seconds())))
+                             f"before next force refresh (might take longer for daemon to re-run)")
+            # time.sleep(min(self.CACHED_REFRESH_INTERVAL, self.interval_in_seconds - int(delta.total_seconds())))
             return
 
         self.logger.info("Performing force refresh...")
