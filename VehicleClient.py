@@ -6,10 +6,10 @@ from enum import Enum
 
 from dateutil.relativedelta import relativedelta
 from dotenv import load_dotenv
-from hyundai_kia_connect_api.exceptions import RateLimitingError, APIError, RequestTimeoutError
 
 from DatabaseClient import DatabaseClient
 from hyundai_kia_connect_api import Vehicle, VehicleManager
+from hyundai_kia_connect_api.exceptions import RateLimitingError, APIError, RequestTimeoutError
 
 
 class ChargeType(Enum):
@@ -237,88 +237,86 @@ class VehicleClient:
             self.logger.info("sleeping for 60 seconds before next attempt")
             time.sleep(60)
 
-    def loop(self):
-        while True:
+    def refresh(self):
+        self.logger.info("refreshing token...")
 
-            self.logger.info("refreshing token...")
+        if len(self.vm.vehicles) == 0 and self.vm.token:
+            # supposed bug in lib: if initialization fails due to rate limiting, vehicles list is never filled
+            # reset token to login again, the lib will then fill the list correctly
+            self.vm.token = None
+        # this command does NOT refresh vehicles (at least for EU and if there is not a preexisting token)
+        try:
+            self.vm.check_and_refresh_token()
+        except Exception as e:
+            self.handle_api_exception(e)
+            return
 
-            if len(self.vm.vehicles) == 0 and self.vm.token:
-                # supposed bug in lib: if initialization fails due to rate limiting, vehicles list is never filled
-                # reset token to login again, the lib will then fill the list correctly
-                self.vm.token = None
-            # this command does NOT refresh vehicles (at least for EU and if there is not a preexisting token)
+        self.vehicle = self.vm.get_vehicle(os.environ["KIA_VEHICLE_UUID"])
+        # fetch cached status, but do not retrieve driving info (driving stats) just yet, to prevent making too
+        # many API calls. yes, cached calls also increment the API limit counter.
+
+        try:
+            response = self.vm.api._get_cached_vehicle_state(self.vm.token, self.vehicle)
+        except Exception as e:
+            self.handle_api_exception(e)
+            return
+
+        self.vm.api._update_vehicle_properties(self.vehicle, response)
+
+        self.set_interval()
+
+        # TODO: SHOULD WE REALLY STRIP TZINFO?
+        if self.vehicle.last_updated_at.replace(
+                tzinfo=None) > self.db_client.get_last_update_timestamp():
+            # it's not time to force refresh yet, but we still have data on the server
+            # that is more recent that our last saved data, so we save it
+
+            # perform get_driving_info only now that we're sure there is no data.
+            # otherwise we waste precious API calls (rate limiting)
             try:
-                self.vm.check_and_refresh_token()
+                response = self.vm.api._get_driving_info(self.vm.token, self.vehicle)
             except Exception as e:
                 self.handle_api_exception(e)
-                continue
+                return
 
-            self.vehicle = self.vm.get_vehicle(os.environ["KIA_VEHICLE_UUID"])
-            # fetch cached status, but do not retrieve driving info (driving stats) just yet, to prevent making too
-            # many API calls. yes, cached calls also increment the API limit counter.
+            self.vm.api._update_vehicle_drive_info(self.vehicle, response)
 
-            try:
-                response = self.vm.api._get_cached_vehicle_state(self.vm.token, self.vehicle)
-            except Exception as e:
-                self.handle_api_exception(e)
-                continue
+            self.db_client.save_daily_stats()
 
-            self.vm.api._update_vehicle_properties(self.vehicle, response)
+        delta = datetime.datetime.now() - self.db_client.get_last_update_timestamp()
 
-            self.set_interval()
+        self.logger.info(f"Delta between last saved update and current time: {int(delta.total_seconds())} seconds")
 
-            # TODO: SHOULD WE REALLY STRIP TZINFO?
-            if self.vehicle.last_updated_at.replace(
-                    tzinfo=None) > self.db_client.get_last_update_timestamp():
-                # it's not time to force refresh yet, but we still have data on the server
-                # that is more recent that our last saved data, so we save it
+        if delta.total_seconds() <= self.interval_in_seconds:
+            self.logger.info(f"{str(int((self.interval_in_seconds - delta.total_seconds()) / 60))} minutes left "
+                             f"before next force refresh")
+            time.sleep(min(self.CACHED_REFRESH_INTERVAL, self.interval_in_seconds - int(delta.total_seconds())))
+            return
 
-                # perform get_driving_info only now that we're sure there is no data.
-                # otherwise we waste precious API calls (rate limiting)
-                try:
-                    response = self.vm.api._get_driving_info(self.vm.token, self.vehicle)
-                except Exception as e:
-                    self.handle_api_exception(e)
-                    continue
+        self.logger.info("Performing force refresh...")
+        try:
+            self.vm.force_refresh_vehicle_state(self.vehicle.id)
+        except Exception as e:
+            self.handle_api_exception(e)
+            return
 
-                self.vm.api._update_vehicle_drive_info(self.vehicle, response)
+        self.logger.info(f"Data received by server. Now retrieving from server...")
 
-                self.db_client.save_daily_stats()
+        try:
+            self.vm.update_vehicle_with_cached_state(self.vehicle.id)
+        except Exception as e:
+            self.handle_api_exception(e)
+            return
 
-            delta = datetime.datetime.now() - self.db_client.get_last_update_timestamp()
+        self.set_interval()
 
-            self.logger.info(f"Delta between last saved update and current time: {int(delta.total_seconds())} seconds")
+        # request, process and save trips only after a force refresh. It's not mandatory,
+        # but we do it like this to limit API calls.
+        # process_trips() does at least 2 API calls even when there are no new trips.
+        self.process_trips()
 
-            if delta.total_seconds() <= self.interval_in_seconds:
-                self.logger.info(f"{str(int((self.interval_in_seconds - delta.total_seconds()) / 60))} minutes left "
-                                 f"before next force refresh")
-                time.sleep(min(self.CACHED_REFRESH_INTERVAL, self.interval_in_seconds - int(delta.total_seconds())))
-                continue
-
-            self.logger.info("Performing force refresh...")
-            try:
-                self.vm.force_refresh_vehicle_state(self.vehicle.id)
-            except Exception as e:
-                self.handle_api_exception(e)
-                continue
-
-            self.logger.info(f"Data received by server. Now retrieving from server...")
-
-            try:
-                self.vm.update_vehicle_with_cached_state(self.vehicle.id)
-            except Exception as e:
-                self.handle_api_exception(e)
-                continue
-
-            self.set_interval()
-
-            # request, process and save trips only after a force refresh. It's not mandatory,
-            # but we do it like this to limit API calls.
-            # process_trips() does at least 2 API calls even when there are no new trips.
-            self.process_trips()
-
-            # process and save data to database.
-            self.save_log()
+        # process and save data to database.
+        self.save_log()
 
     def set_interval(self):
         if self.vehicle.engine_is_running:

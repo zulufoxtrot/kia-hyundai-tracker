@@ -22,4 +22,4 @@ if __name__ == '__main__':
     else:
         vehicle_client.interval_in_seconds = vehicle_client.CACHED_REFRESH_INTERVAL
 
-    vehicle_client.loop()
+    vehicle_client.refresh()
