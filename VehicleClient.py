@@ -1,7 +1,6 @@
 import datetime
 import logging
 import os
-import time
 from enum import Enum
 
 from dateutil.relativedelta import relativedelta
@@ -267,6 +266,8 @@ class VehicleClient:
 
         self.vm.api._update_vehicle_properties(self.vehicle, response)
 
+        self.get_estimated_charging_power()
+
         self.set_interval()
 
         # TODO: SHOULD WE REALLY STRIP TZINFO?
@@ -311,6 +312,8 @@ class VehicleClient:
         except Exception as e:
             self.handle_api_exception(e)
             return
+
+        self.get_estimated_charging_power()
 
         self.set_interval()
 
