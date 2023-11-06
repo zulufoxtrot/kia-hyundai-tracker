@@ -46,7 +46,7 @@ class VehicleClient:
         # we set it to 4 hours for cached refreshes.
         self.CACHED_REFRESH_INTERVAL = 3600
 
-        self.CAR_OFF_FORCE_REFRESH_INTERVAL = 3600 * 4
+        self.CAR_OFF_FORCE_REFRESH_INTERVAL = 3600 * 12
 
         self.ENGINE_RUNNING_FORCE_REFRESH_INTERVAL = 600
         self.DC_CHARGE_FORCE_REFRESH_INTERVAL = 300
