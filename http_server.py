@@ -7,6 +7,7 @@ from flask import Flask, request, make_response, jsonify
 from VehicleClient import VehicleClient
 from hyundai_kia_connect_api import ClimateRequestOptions
 from hyundai_kia_connect_api.const import OrderStatus
+from hyundai_kia_connect_api.exceptions import DeviceIDError
 
 app = Flask(__name__)
 
@@ -24,7 +25,17 @@ def auth_required(f):
         # password is passed as a GET argument in the HTTP request.
         if request.args.get('password') != app.config["SERVER_PASSWORD"]:
             return make_response({"error": "invalid password"}, 401)
-        return f(*args, **kwargs)
+
+        for attempts in range(2):
+            vehicle_client.vm.check_and_refresh_token()
+            try:
+                return f(*args, **kwargs)
+            except DeviceIDError:
+                # Workaround for "invalid deviceID": reset token, then relogin
+                # https://github.com/Hyundai-Kia-Connect/hyundai_kia_connect_api/issues/424#issuecomment-1752787621
+                vehicle_client.vm.token = None
+            except Exception as e:
+                return make_response({"error": "something went wrong"}, 500)
 
     return decorator
 
@@ -32,7 +43,6 @@ def auth_required(f):
 @app.route("/force_refresh")
 @auth_required
 def force_refresh():
-    vehicle_client.vm.check_and_refresh_token()
     vehicle_client.vm.force_refresh_vehicle_state(vehicle_client.vehicle.id)
     vehicle_client.vm.update_vehicle_with_cached_state(vehicle_client.vehicle.id)
 
@@ -44,7 +54,6 @@ def force_refresh():
 @app.route("/status")
 @auth_required
 def get_cached_status():
-    vehicle_client.vm.check_and_refresh_token()
     vehicle_client.vm.update_all_vehicles_with_cached_state()
 
     if vehicle_client.vehicle.last_updated_at.replace(
@@ -69,7 +78,6 @@ def get_cached_status():
 @app.route("/battery")
 @auth_required
 def get_battery_soc():
-    vehicle_client.vm.check_and_refresh_token()
     vehicle_client.vm.update_all_vehicles_with_cached_state()
 
     if vehicle_client.vehicle.last_updated_at.replace(
@@ -87,7 +95,6 @@ def toggle_charge():
     - action: [start, stop]
     - synchronous: [true, false]
     """
-    vehicle_client.vm.check_and_refresh_token()
 
     action = request.args.get('action')
     wait_for_response = bool(request.args.get('synchronous', False))
@@ -124,8 +131,6 @@ def toggle_climate():
     options.set_temp = float(request.args.get('temp', default=22))
     options.duration = request.args.get('duration', default=10)
 
-    vehicle_client.vm.check_and_refresh_token()
-
     action = request.args.get('action')
     wait_for_response = bool(request.args.get('synchronous', False))
     status = OrderStatus.PENDING
@@ -153,7 +158,6 @@ def toggle_doors():
     - action: [lock, unlock]
     - synchronous: [true, false]
     """
-    vehicle_client.vm.check_and_refresh_token()
 
     action = request.args.get('action')
     wait_for_response = bool(request.args.get('synchronous', False))
@@ -175,6 +179,7 @@ def toggle_doors():
 
 
 @app.route("/last_action_status")
+@auth_required
 def get_last_action_status():
     """
     Get status of the last known sent command
