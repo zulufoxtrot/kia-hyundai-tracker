@@ -1,4 +1,6 @@
+import logging
 import os
+import time
 from functools import wraps
 
 from dotenv import load_dotenv
@@ -7,7 +9,7 @@ from flask import Flask, request, make_response, jsonify
 from VehicleClient import VehicleClient
 from hyundai_kia_connect_api import ClimateRequestOptions
 from hyundai_kia_connect_api.const import OrderStatus
-from hyundai_kia_connect_api.exceptions import DeviceIDError
+from hyundai_kia_connect_api.exceptions import DeviceIDError, RateLimitingError
 
 app = Flask(__name__)
 
@@ -207,7 +209,15 @@ if __name__ == "__main__":
         raise Exception("HTTP_SERVER_PASSWORD not set. Exiting.")
 
     vehicle_client = VehicleClient()
-    vehicle_client.vm.check_and_refresh_token()
+
+    while True:
+        try:
+            vehicle_client.vm.check_and_refresh_token()
+            break
+        except RateLimitingError:
+            logging.error("Got rate limited. Will try again in 1 hour.")
+            time.sleep(60 * 60)
+
     vehicle_client.vehicle = vehicle_client.vm.get_vehicle(os.environ["KIA_VEHICLE_UUID"])
 
     app.run(port=8000, host='0.0.0.0', debug=True)
