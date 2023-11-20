@@ -320,8 +320,8 @@ class VehicleClient:
         # request, process and save trips only after a force refresh. It's not mandatory,
         # but we do it like this to limit API calls.
         # process_trips() does at least 2 API calls even when there are no new trips.
-        if self.charging_power_in_kilowatts == 0:
-            # do not refresh trip list when vehicle is charging
+        if self.charging_power_in_kilowatts == 0 and not self.vehicle.engine_is_running:
+            # do not refresh trip list when vehicle is charging or with ignition / contact mode
             self.process_trips()
 
         # process and save data to database.
