@@ -105,16 +105,21 @@ class VehicleClient:
 
             # simulate DC charging power curve for 64kWh e-niro
             # source: https://support.fastned.nl/hc/fr/articles/4408899202193-Kia
-            if self.vehicle.ev_battery_percentage > 90:
-                charging_power_in_kilowatts = min(20, charging_power_in_kilowatts)
+
+            if self.vehicle.ev_battery_percentage > 95:
+                charging_power_in_kilowatts = min(5, charging_power_in_kilowatts)
+            elif self.vehicle.ev_battery_percentage > 90:
+                charging_power_in_kilowatts = min(10, charging_power_in_kilowatts)
             elif self.vehicle.ev_battery_percentage > 80:
-                charging_power_in_kilowatts = min(25, charging_power_in_kilowatts)
-            elif self.vehicle.ev_battery_percentage > 70:
-                charging_power_in_kilowatts = min(38, charging_power_in_kilowatts)
+                charging_power_in_kilowatts = min(20, charging_power_in_kilowatts)
+            elif self.vehicle.ev_battery_percentage > 75:
+                charging_power_in_kilowatts = min(35, charging_power_in_kilowatts)
             elif self.vehicle.ev_battery_percentage > 55:
-                charging_power_in_kilowatts = min(58, charging_power_in_kilowatts)
+                charging_power_in_kilowatts = min(55, charging_power_in_kilowatts)
             elif self.vehicle.ev_battery_percentage > 40:
                 charging_power_in_kilowatts = min(70, charging_power_in_kilowatts)
+            elif self.vehicle.ev_battery_percentage > 27:
+                charging_power_in_kilowatts = min(77, charging_power_in_kilowatts)
 
         else:
             self.charge_type = ChargeType.AC
