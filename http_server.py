@@ -2,7 +2,6 @@ import logging
 import os
 import time
 from functools import wraps
-from multiprocessing import Process
 
 from dotenv import load_dotenv
 from flask import Flask, request, make_response, jsonify
@@ -73,8 +72,6 @@ def get_cached_status():
               "rough_charging_power_estimate_kw": vehicle_client.charging_power_in_kilowatts,
               "ac_charge_limit_percent": vehicle_client.vehicle.ev_charge_limits_ac,
               "dc_charge_limit_percent": vehicle_client.vehicle.ev_charge_limits_dc,
-              "climate_control": vehicle_client.vehicle.air_control_is_on,
-              "doors_locked": vehicle_client.vehicle.is_locked
               }
 
     return jsonify(result)
@@ -124,12 +121,12 @@ def toggle_charge():
 @auth_required
 def toggle_climate():
     """
-    Controls climate.
     Available arguments:
     - action: [start, stop]
-    - temp: target temperature (degrees celsius)
+    - temp: target temperature (degrees celcius)
     - duration: duration (minutes)
-    - synchronous (wait for car to respond): [true, false]
+    - synchronous: [true, false]
+
     """
 
     options = ClimateRequestOptions()
@@ -153,50 +150,6 @@ def toggle_climate():
                                                        timeout=60)
 
     return jsonify({"component": "climate", "action": action, "status": status.value})
-
-
-@app.route("/climate_async")
-def toggle_climate_async():
-    """
-    Controls climate, but performs requests in a thread in order to respond as fast as possible.
-    Useful for IoT integrations (Siri, etc)
-    Available arguments:
-    - action: [start, stop]
-    - temp: target temperature (degrees celsius)
-    - duration: duration (minutes)
-    """
-
-    options = ClimateRequestOptions()
-    options.set_temp = float(request.args.get('temp', default=22))
-    options.duration = request.args.get('duration', default=10)
-
-    action = request.args.get('action')
-    status = OrderStatus.PENDING
-
-    if action not in ["start", "stop"]:
-        return f"unrecognised command: {action}. send start or stop."
-
-    Process(target=perform_climate_async_action,
-            args=(action, options),
-            daemon=True)
-
-    return jsonify({"component": "climate", "action": action, "status": status})
-
-
-def perform_climate_async_action(action: str, options: ClimateRequestOptions):
-    # login here, since we can't use the decorator
-    for attempts in range(2):
-        vehicle_client.vm.check_and_refresh_token()
-        try:
-            if action == "start":
-                os.environ["kia_action_id"] = vehicle_client.vm.start_climate(vehicle_client.vehicle.id, options)
-            elif action == "stop":
-                os.environ["kia_action_id"] = vehicle_client.vm.stop_climate(vehicle_client.vehicle.id)
-
-        except DeviceIDError:
-            # Workaround for "invalid deviceID": reset token, then relogin
-            # https://github.com/Hyundai-Kia-Connect/hyundai_kia_connect_api/issues/424#issuecomment-1752787621
-            vehicle_client.vm.token = None
 
 
 @app.route("/doors")
