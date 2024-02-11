@@ -171,6 +171,7 @@ def toggle_climate_async():
     options.duration = request.args.get('duration', default=10)
 
     action = request.args.get('action')
+    status = OrderStatus.PENDING
 
     if action not in ["start", "stop"]:
         return f"unrecognised command: {action}. send start or stop."
@@ -179,7 +180,7 @@ def toggle_climate_async():
             args=(action, options),
             daemon=True)
 
-    return jsonify({"component": "climate", "action": action, "status": "PENDING"})
+    return jsonify({"component": "climate", "action": action, "status": status})
 
 
 def perform_climate_async_action(action: str, options: ClimateRequestOptions):
