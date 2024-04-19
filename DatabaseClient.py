@@ -4,9 +4,8 @@ import os
 import sqlite3
 from sqlite3 import Connection
 
-from hyundai_kia_connect_api.Vehicle import TripInfo
-
 import VehicleClient
+from hyundai_kia_connect_api.Vehicle import TripInfo
 
 
 class DatabaseClient:
@@ -40,6 +39,17 @@ class DatabaseClient:
         else:
             # default value if no preexisting log
             return datetime.datetime(2000, 1, 1)
+
+    def get_last_update_odometer(self) -> float:
+
+        conn = self.create_connection()
+        cur = conn.cursor()
+
+        sql = 'SELECT MAX(odometer) FROM log;'
+        cur.execute(sql)
+        rows = cur.fetchone()
+
+        return rows[0]
 
     def get_most_recent_saved_trip_timestamp(self):
         conn = self.create_connection()

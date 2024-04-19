@@ -67,14 +67,14 @@ class VehicleClient:
         """
         estimated_niro_total_kwh_needed = 70  # 64 usable kwh + unusable kwh + charger losses
 
-        percent_remaining = self.vehicle.ev_charge_limits_ac - self.vehicle.ev_battery_percentage
+        percent_remaining = 100 - self.vehicle.ev_battery_percentage
         kwh_remaining = estimated_niro_total_kwh_needed * percent_remaining / 100
 
         print(f"Kilowatthours needed for full battery: {kwh_remaining} kWh")
 
         charging_power_in_kilowatts = kwh_remaining / (self.vehicle.ev_estimated_current_charge_duration / 60)
 
-        if charging_power_in_kilowatts > 11:
+        if charging_power_in_kilowatts > 8:
 
             # the car's onboard AC charger cannot exceed 7kW, or 11kW with the optional upgrade
             # if power > 11kW, then assume we are DC charging. recalculate values to take DC charge limits into account
@@ -124,7 +124,7 @@ class VehicleClient:
         else:
             self.charge_type = ChargeType.AC
 
-        print(f"Estimated charging speed: {round(charging_power_in_kilowatts, 1)} kW")
+        print(f"Estimated charging power: {round(charging_power_in_kilowatts, 1)} kW")
         self.charging_power_in_kilowatts = round(charging_power_in_kilowatts, 1)
 
     def process_trips(self):
@@ -227,7 +227,7 @@ class VehicleClient:
                 exc_info=exc)
             self.db_client.log_error(exception=exc)
             return
-            #time.sleep(3600)
+            # time.sleep(3600)
 
         # broad API error
         elif isinstance(exc, APIError):
@@ -235,7 +235,7 @@ class VehicleClient:
             self.db_client.log_error(exception=exc)
             return
             # self.logger.info("sleeping for 60 seconds before next attempt")
-            #time.sleep(60)
+            # time.sleep(60)
 
         # any other exception
         else:
@@ -243,7 +243,7 @@ class VehicleClient:
             self.db_client.log_error(exception=exc)
             return
             # self.logger.info("sleeping for 60 seconds before next attempt")
-            #time.sleep(60)
+            # time.sleep(60)
 
     def refresh(self):
         self.logger.info("refreshing token...")
@@ -275,14 +275,11 @@ class VehicleClient:
 
         self.set_interval()
 
-        # TODO: SHOULD WE REALLY STRIP TZINFO?
-        if self.vehicle.last_updated_at.replace(
-                tzinfo=None) > self.db_client.get_last_update_timestamp():
-            # it's not time to force refresh yet, but we still have data on the server
+        # compare odometers. higher odo means we drove and new data must be pulled
+        if self.vehicle.odometer > self.db_client.get_last_update_odometer():
+            # it's not time to force refresh yet, but we might still have data on the server
             # that is more recent that our last saved data, so we save it
 
-            # perform get_driving_info only now that we're sure there is no data.
-            # otherwise we waste precious API calls (rate limiting)
             try:
                 response = self.vm.api._get_driving_info(self.vm.token, self.vehicle)
             except Exception as e:
@@ -290,7 +287,6 @@ class VehicleClient:
                 return
 
             self.vm.api._update_vehicle_drive_info(self.vehicle, response)
-
             self.db_client.save_daily_stats()
 
         delta = datetime.datetime.now() - self.db_client.get_last_update_timestamp()
@@ -300,7 +296,6 @@ class VehicleClient:
         if delta.total_seconds() <= self.interval_in_seconds:
             self.logger.info(f"{str(int((self.interval_in_seconds - delta.total_seconds()) / 60))} minutes left "
                              f"before next force refresh (might take longer for daemon to re-run)")
-            # time.sleep(min(self.CACHED_REFRESH_INTERVAL, self.interval_in_seconds - int(delta.total_seconds())))
             return
 
         self.logger.info("Performing force refresh...")
@@ -325,7 +320,8 @@ class VehicleClient:
         # request, process and save trips only after a force refresh. It's not mandatory,
         # but we do it like this to limit API calls.
         # process_trips() does at least 2 API calls even when there are no new trips.
-        if self.charging_power_in_kilowatts == 0 and not self.vehicle.engine_is_running:
+        if (self.charging_power_in_kilowatts == 0 or not self.vehicle.engine_is_running) \
+                and self.vehicle.odometer > self.db_client.get_last_update_odometer():
             # do not refresh trip list when vehicle is charging or with ignition / contact mode
             self.process_trips()
 
