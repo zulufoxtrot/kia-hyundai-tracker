@@ -293,29 +293,25 @@ class VehicleClient:
 
         self.logger.info(f"Delta between last saved update and current time: {int(delta.total_seconds())} seconds")
 
-        if delta.total_seconds() <= self.interval_in_seconds:
-            self.logger.info(f"{str(int((self.interval_in_seconds - delta.total_seconds()) / 60))} minutes left "
-                             f"before next force refresh (might take longer for daemon to re-run)")
-            return
+        if delta.total_seconds() > self.interval_in_seconds:
+            self.logger.info("Performing force refresh...")
+            try:
+                self.vm.force_refresh_vehicle_state(self.vehicle.id)
+            except Exception as e:
+                self.handle_api_exception(e)
+                return
 
-        self.logger.info("Performing force refresh...")
-        try:
-            self.vm.force_refresh_vehicle_state(self.vehicle.id)
-        except Exception as e:
-            self.handle_api_exception(e)
-            return
+            self.logger.info(f"Data received by server. Now retrieving from server...")
 
-        self.logger.info(f"Data received by server. Now retrieving from server...")
+            try:
+                self.vm.update_vehicle_with_cached_state(self.vehicle.id)
+            except Exception as e:
+                self.handle_api_exception(e)
+                return
 
-        try:
-            self.vm.update_vehicle_with_cached_state(self.vehicle.id)
-        except Exception as e:
-            self.handle_api_exception(e)
-            return
+            self.get_estimated_charging_power()
 
-        self.get_estimated_charging_power()
-
-        self.set_interval()
+            self.set_interval()
 
         # request, process and save trips only after a force refresh. It's not mandatory,
         # but we do it like this to limit API calls.
@@ -329,7 +325,7 @@ class VehicleClient:
         self.save_log()
 
     def set_interval(self):
-        if self.vehicle.engine_is_running:
+        if self.vehicle.engine_is_running and not self.vehicle.ev_battery_is_charging:
             # for an EV: "engine running" supposedly means the contact is set and the car is "ready to drive"
             # engine is also reported as "running" in utility mode.
             self.interval_in_seconds = self.ENGINE_RUNNING_FORCE_REFRESH_INTERVAL
