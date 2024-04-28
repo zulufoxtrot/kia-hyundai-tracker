@@ -65,6 +65,10 @@ class VehicleClient:
         - charging time remaining as reported by the car
         :return:
         """
+
+        if not self.vehicle.ev_battery_is_charging:
+            return
+
         estimated_niro_total_kwh_needed = 70  # 64 usable kwh + unusable kwh + charger losses
 
         percent_remaining = 100 - self.vehicle.ev_battery_percentage
@@ -195,8 +199,6 @@ class VehicleClient:
             logging.info(f"Estimated end time: {estimated_end_datetime.strftime('%d/%m/%Y at %H:%M')}")
         else:
             # battery is not charging nor is the engine running
-            # reduce polling interval to prevent draining the 12 battery
-            self.interval_in_seconds = 3600
             self.charging_power_in_kilowatts = 0
 
         self.db_client.save_log()
@@ -288,6 +290,14 @@ class VehicleClient:
 
             self.vm.api._update_vehicle_drive_info(self.vehicle, response)
             self.db_client.save_daily_stats()
+            self.get_estimated_charging_power()
+            # process_trips() does at least 2 API calls even when there are no new trips.
+            self.process_trips()
+            
+        # if vehicle state has changed, then save an entry
+        if self.vehicle.last_updated_at.replace(
+                tzinfo=None) > self.db_client.get_last_update_timestamp():
+            self.save_log()
 
         delta = datetime.datetime.now() - self.db_client.get_last_update_timestamp()
 
@@ -312,14 +322,6 @@ class VehicleClient:
             self.get_estimated_charging_power()
 
             self.set_interval()
-
-        # request, process and save trips only after a force refresh. It's not mandatory,
-        # but we do it like this to limit API calls.
-        # process_trips() does at least 2 API calls even when there are no new trips.
-        if (self.charging_power_in_kilowatts == 0 or not self.vehicle.engine_is_running) \
-                and self.vehicle.odometer > self.db_client.get_last_update_odometer():
-            # do not refresh trip list when vehicle is charging or with ignition / contact mode
-            self.process_trips()
 
         # process and save data to database.
         self.save_log()
