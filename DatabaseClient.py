@@ -34,11 +34,7 @@ class DatabaseClient:
         cur.execute(sql)
         rows = cur.fetchone()
 
-        if rows[0]:
-            return datetime.datetime.fromtimestamp(rows[0])
-        else:
-            # default value if no preexisting log
-            return datetime.datetime(2000, 1, 1)
+        return datetime.datetime.fromtimestamp(rows[0])
 
     def get_last_update_odometer(self) -> float:
 
