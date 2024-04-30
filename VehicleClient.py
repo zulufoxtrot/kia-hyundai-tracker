@@ -294,13 +294,13 @@ class VehicleClient:
             # process_trips() does at least 2 API calls even when there are no new trips.
             self.process_trips()
 
-        db_last_update_ts = self.db_client.get_last_update_timestamp().replace(tzinfo=None)
+        db_last_update_ts = self.db_client.get_last_update_timestamp()
 
         # if vehicle state has changed, then save an entry
-        if self.vehicle.last_updated_at.replace(tzinfo=None) > db_last_update_ts:
+        if self.vehicle.last_updated_at > db_last_update_ts:
             self.save_log()
 
-        delta = datetime.datetime.now().replace(tzinfo=None) - db_last_update_ts
+        delta = datetime.datetime.now() - db_last_update_ts
 
         self.logger.info(f"Delta between last saved update and current time: {int(delta.total_seconds())} seconds")
 
