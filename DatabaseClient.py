@@ -118,16 +118,14 @@ class DatabaseClient:
         else:
             odometer = 0
 
-        # TODO: restore this?
-        # # fetch the last known vehicule force refresh timestamp.
-        # sql = 'SELECT MAX(unix_last_vehicle_update_timestamp) FROM log;'
-        # cur.execute(sql)
-        # rows = cur.fetchone()
-        #
-        # # if we already have that timestamp logged, we don't need to store the data again.
-        # if rows[0] == round(datetime.datetime.timestamp(self.vehicle_client.vehicle.last_updated_at)):
-        #     logging.info("Most recent vehicle report already saved to database. Skipping.")
-        # else:
+        # when performing a force refresh, the server is supposed to return updated timestamps for
+        # both vehicle properties AND vehicle location. For some reason it sometimes only updates the location time.
+        # this causes problems down the line because the timestamp we compare is too old. to prevent this,
+        # store the max value.
+        last_vehicle_update_ts = max(self.vehicle_client.vehicle.last_updated_at,
+                                     self.vehicle_client.vehicle.location_last_updated_at
+                                     )
+
         sql = f'''INSERT INTO log(
                     battery_percentage,
                     accessory_battery_percentage,
@@ -153,8 +151,8 @@ class DatabaseClient:
                       {self.vehicle_client.vehicle.ev_driving_range},
                       '{datetime.datetime.now()}',
                       {round(datetime.datetime.timestamp(datetime.datetime.now()))},
-                      '{self.vehicle_client.vehicle.last_updated_at}',
-                      {round(datetime.datetime.timestamp(self.vehicle_client.vehicle.last_updated_at))},
+                      '{last_vehicle_update_ts}',
+                      {round(datetime.datetime.timestamp(last_vehicle_update_ts))},
                       {latitude},
                       {longitude},
                       {odometer},
