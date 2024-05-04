@@ -44,9 +44,9 @@ class VehicleClient:
         # we are limited to 200 requests a day, including cached
         # that's about one every 8 minutes
         # we set it to 4 hours for cached refreshes.
-        self.CACHED_REFRESH_INTERVAL = 3600
+        self.CACHED_REFRESH_INTERVAL = 3600 * 4
 
-        self.CAR_OFF_FORCE_REFRESH_INTERVAL = 3600 * 12
+        self.CAR_OFF_FORCE_REFRESH_INTERVAL = 3600 * 6
 
         self.ENGINE_RUNNING_FORCE_REFRESH_INTERVAL = 600
         self.DC_CHARGE_FORCE_REFRESH_INTERVAL = 300
@@ -304,6 +304,11 @@ class VehicleClient:
         delta = datetime.datetime.now() - self.vehicle.last_updated_at.replace(tzinfo=None)
 
         self.logger.info(f"Delta between last saved update and current time: {int(delta.total_seconds())} seconds")
+
+        if delta.total_seconds() < 0:
+            self.logger.error(
+                f"Negative delta ({delta.total_seconds()}s), probably a timezone issue. Check your logic.")
+            raise RuntimeError()
 
         if delta.total_seconds() > self.interval_in_seconds:
             self.logger.info("Performing force refresh...")
