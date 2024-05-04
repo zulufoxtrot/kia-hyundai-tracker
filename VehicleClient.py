@@ -297,10 +297,11 @@ class VehicleClient:
         db_last_update_ts = self.db_client.get_last_update_timestamp()
 
         # if vehicle state has changed, then save an entry
-        if self.vehicle.last_updated_at > db_last_update_ts:
+        if self.vehicle.last_updated_at.replace(tzinfo=None) > db_last_update_ts:
+            self.logger.info("Cached data found, saving log...")
             self.save_log()
 
-        delta = datetime.datetime.now() - db_last_update_ts
+        delta = datetime.datetime.now() - self.vehicle.last_updated_at.replace(tzinfo=None)
 
         self.logger.info(f"Delta between last saved update and current time: {int(delta.total_seconds())} seconds")
 
@@ -324,8 +325,8 @@ class VehicleClient:
 
             self.set_interval()
 
-        # process and save data to database.
-        self.save_log()
+            # process and save data to database.
+            self.save_log()
 
     def set_interval(self):
         if self.vehicle.engine_is_running and not self.vehicle.ev_battery_is_charging:
