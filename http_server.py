@@ -37,7 +37,7 @@ def auth_required(f):
                 # https://github.com/Hyundai-Kia-Connect/hyundai_kia_connect_api/issues/424#issuecomment-1752787621
                 vehicle_client.vm.token = None
             except Exception as e:
-                return make_response({"error": "something went wrong"}, 500)
+                return make_response({"error": "something went wrong: " + str(e)}, 500)
 
     return decorator
 
@@ -81,7 +81,8 @@ def get_cached_status():
 def get_battery_soc():
     vehicle_client.vm.update_all_vehicles_with_cached_state()
 
-    if vehicle_client.vehicle.last_updated_at > vehicle_client.db_client.get_last_update_timestamp():
+    if vehicle_client.vehicle.last_updated_at.replace(
+            tzinfo=None) > vehicle_client.db_client.get_last_update_timestamp():
         vehicle_client.save_log()
 
     return str(vehicle_client.vehicle.ev_battery_percentage)
