@@ -49,7 +49,7 @@ class VehicleClient:
         self.CAR_OFF_FORCE_REFRESH_INTERVAL = 3600 * 6
 
         self.ENGINE_RUNNING_FORCE_REFRESH_INTERVAL = 600
-        self.DC_CHARGE_FORCE_REFRESH_INTERVAL = 300
+        self.DC_CHARGE_FORCE_REFRESH_INTERVAL = 1800
         self.AC_CHARGE_FORCE_REFRESH_INTERVAL = 1800
 
         self.vm = VehicleManager(region=1, brand=1, username=os.environ["KIA_USERNAME"],
@@ -67,7 +67,7 @@ class VehicleClient:
         """
 
         if not self.vehicle.ev_battery_is_charging:
-            return
+            return 0
 
         estimated_niro_total_kwh_needed = 70  # 64 usable kwh + unusable kwh + charger losses
 
@@ -76,9 +76,14 @@ class VehicleClient:
 
         print(f"Kilowatthours needed for full battery: {kwh_remaining} kWh")
 
+        # todo: there is a bug here: kwh_remaining does not take charge limits into account.
+        #  however the "estimated charge time" provided by the car does.
+        #  so this formula returns too high values (ex: 20kw when AC charging at home).
         charging_power_in_kilowatts = kwh_remaining / (self.vehicle.ev_estimated_current_charge_duration / 60)
 
-        if charging_power_in_kilowatts > 8:
+        # the delta calculation between ac limits and percentage is a temporary fix for the todo above
+        if (charging_power_in_kilowatts > 8
+                and self.vehicle.ev_charge_limits_ac - self.vehicle.ev_battery_percentage > 15):
 
             # the car's onboard AC charger cannot exceed 7kW, or 11kW with the optional upgrade
             # if power > 11kW, then assume we are DC charging. recalculate values to take DC charge limits into account
